@@ -1,6 +1,6 @@
-using DemoApi.Domain;
-
 namespace DemoApi.Data.InMemory;
+
+using DemoApi.Domain;
 
 public sealed class InMemoryProjectRepository(InMemoryStore store) : IProjectRepository
 {
@@ -8,8 +8,7 @@ public sealed class InMemoryProjectRepository(InMemoryStore store) : IProjectRep
     {
         lock (store.Sync)
         {
-            IReadOnlyList<Project> result = store.Projects.OrderBy(p => p.Id).ToList();
-            return Task.FromResult(result);
+            return Task.FromResult<IReadOnlyList<Project>>(store.Projects.ToList());
         }
     }
 
@@ -25,7 +24,7 @@ public sealed class InMemoryProjectRepository(InMemoryStore store) : IProjectRep
     {
         lock (store.Sync)
         {
-            return Task.FromResult(store.Projects.Any(p => p.Name == name));
+            return Task.FromResult(store.Projects.Any(p => p.Name.Equals(name, StringComparison.OrdinalIgnoreCase)));
         }
     }
 
@@ -33,9 +32,23 @@ public sealed class InMemoryProjectRepository(InMemoryStore store) : IProjectRep
     {
         lock (store.Sync)
         {
-            var project = new Project(store.NextProjectId++, name, DateTimeOffset.UtcNow);
+            var id = store.Projects.Count > 0 ? store.Projects.Max(p => p.Id) + 1 : 1;
+            var project = new Project(id, name, DateTimeOffset.UtcNow);
             store.Projects.Add(project);
             return Task.FromResult(project);
+        }
+    }
+
+    public Task<Project?> RenameAsync(int id, string name, CancellationToken ct)
+    {
+        lock (store.Sync)
+        {
+            var index = store.Projects.FindIndex(p => p.Id == id);
+            if (index == -1) return Task.FromResult<Project?>(null);
+
+            var updated = store.Projects[index] with { Name = name };
+            store.Projects[index] = updated;
+            return Task.FromResult<Project?>(updated);
         }
     }
 
@@ -43,8 +56,8 @@ public sealed class InMemoryProjectRepository(InMemoryStore store) : IProjectRep
     {
         lock (store.Sync)
         {
-            store.Tasks.RemoveAll(t => t.ProjectId == id);   // как ON DELETE CASCADE в БД
-            return Task.FromResult(store.Projects.RemoveAll(p => p.Id == id) > 0);
+            var count = store.Projects.RemoveAll(p => p.Id == id);
+            return Task.FromResult(count > 0);
         }
     }
 }
